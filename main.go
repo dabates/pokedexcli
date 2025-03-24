@@ -3,22 +3,27 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"example.com/dabates/pokedexcli/internal/pokecache"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
+
+const locationURL = "https://pokeapi.co/api/v2/location-area/"
 
 type config struct {
 	next     string
 	previous string
+	cache    *pokecache.Cache
 }
 
 type cliCommand struct {
 	name        string
 	description string
-	callback    func(cfg *config) error
+	callback    func(cfg *config, params []string) error
 }
 
 type locationAreaResponse struct {
@@ -35,18 +40,18 @@ func cleanInput(text string) []string {
 	return stringVals
 }
 
-func commandExit(cfg *config) error {
+func commandExit(cfg *config, params []string) error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func commandHelp(cfg *config) error {
+func commandHelp(cfg *config, params []string) error {
 	fmt.Println("Welcome to the Pokedex!\nUsage:\n\nhelp: Displays a help message\nexit: Exit the Pokedex")
 	return nil
 }
 
-func commandMapb(cfg *config) error {
+func commandMapb(cfg *config, params []string) error {
 	var next string
 
 	if cfg.previous == "" {
@@ -56,16 +61,24 @@ func commandMapb(cfg *config) error {
 		next = cfg.previous
 	}
 
-	res, err := http.Get(next)
-	if err != nil {
-		return err
-	}
+	body, err := cfg.cache.Get(next)
 
-	body, err := ioutil.ReadAll(res.Body)
+	fmt.Println(err)
+
 	if err != nil {
-		return err
+		res, err := http.Get(next)
+		if err != nil {
+			return err
+		}
+
+		body, err = io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		cfg.cache.Add(next, body)
 	}
-	defer res.Body.Close()
 
 	data := locationAreaResponse{}
 	err = json.Unmarshal(body, &data)
@@ -83,25 +96,31 @@ func commandMapb(cfg *config) error {
 	return nil
 }
 
-func commandMap(cfg *config) error {
+func commandMap(cfg *config, params []string) error {
 	var next string
 
 	if cfg.next == "" {
-		next = "https://pokeapi.co/api/v2/location-area/"
+		next = locationURL
 	} else {
 		next = cfg.next
 	}
 
-	res, err := http.Get(next)
-	if err != nil {
-		return err
-	}
+	body, err := cfg.cache.Get(next)
 
-	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return err
+		res, err := http.Get(next)
+		if err != nil {
+			return err
+		}
+
+		body, err = io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		cfg.cache.Add(next, body)
 	}
-	defer res.Body.Close()
 
 	data := locationAreaResponse{}
 	err = json.Unmarshal(body, &data)
@@ -118,6 +137,11 @@ func commandMap(cfg *config) error {
 
 	return nil
 }
+
+func commandExplore(cfg *config, params []string) error {
+	return nil
+}
+
 func main() {
 	commands := map[string]cliCommand{
 		"map": {
@@ -140,10 +164,16 @@ func main() {
 			description: "Shows this help message",
 			callback:    commandHelp,
 		},
+		"explore": {
+			name:        "explore",
+			description: "Explore the Pokedex",
+			callback:    commandExplore,
+		},
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	cfg := &config{}
+	cfg.cache = pokecache.NewCache(30 * time.Second)
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -156,12 +186,14 @@ func main() {
 		}
 
 		cmd, ok := commands[input[0]]
+		params := input[:1]
+
 		fmt.Println(cmd.name)
 
 		if !ok {
 			fmt.Printf("Command \"%s\" not found.\n", input[0])
 		} else {
-			err := cmd.callback(cfg)
+			err := cmd.callback(cfg, params)
 			if err != nil {
 				fmt.Println(err)
 			}
