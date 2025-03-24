@@ -35,6 +35,19 @@ type locationAreaResponse struct {
 	} `json:"results"`
 }
 
+type locationResponse struct {
+	id         string
+	name       string
+	game_index string
+
+	Encounters []struct {
+		Pokemon struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"pokemon"`
+	} `json:"pokemon_encounters"`
+}
+
 func cleanInput(text string) []string {
 	stringVals := strings.Fields(strings.ToLower(text))
 	return stringVals
@@ -139,6 +152,36 @@ func commandMap(cfg *config, params []string) error {
 }
 
 func commandExplore(cfg *config, params []string) error {
+	fmt.Println("Count of parameters:", len(params))
+
+	for _, param := range params {
+		url := locationURL + param
+
+		body, err := cfg.cache.Get(param)
+		if err != nil {
+			res, err := http.Get(url)
+			if err != nil {
+				return err
+			}
+
+			body, err = io.ReadAll(res.Body)
+
+			if err != nil {
+				return err
+			}
+			res.Body.Close()
+
+			cfg.cache.Add(param, body)
+		}
+
+		data := locationResponse{}
+		err = json.Unmarshal(body, &data)
+
+		fmt.Println("Found Pokemon:")
+		for _, encounter := range data.Encounters {
+			fmt.Println("-", encounter.Pokemon.Name)
+		}
+	}
 	return nil
 }
 
@@ -186,7 +229,7 @@ func main() {
 		}
 
 		cmd, ok := commands[input[0]]
-		params := input[:1]
+		params := input[1:]
 
 		fmt.Println(cmd.name)
 
