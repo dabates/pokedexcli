@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"example.com/dabates/pokedexcli/commands"
 	"example.com/dabates/pokedexcli/internal/pokecache"
 	. "example.com/dabates/pokedexcli/types"
 	"fmt"
@@ -16,7 +17,7 @@ func cleanInput(text string) []string {
 }
 
 func main() {
-	commands := GetCommands()
+	cmds := commands.GetCommands()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	cfg := &Config{}
@@ -33,7 +34,7 @@ func main() {
 			continue
 		}
 
-		cmd, ok := commands[input[0]]
+		cmd, ok := cmds[input[0]]
 		params := input[1:]
 
 		fmt.Println(cmd.Name)

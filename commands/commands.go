@@ -1,7 +1,6 @@
-package main
+package commands
 
 import (
-	. "example.com/dabates/pokedexcli/commands"
 	. "example.com/dabates/pokedexcli/types"
 )
 
