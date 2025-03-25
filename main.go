@@ -6,18 +6,22 @@ import (
 	"example.com/dabates/pokedexcli/internal/pokecache"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const locationURL = "https://pokeapi.co/api/v2/location-area/"
+const pokemonURL = "https://pokeapi.co/api/v2/pokemon/"
 
 type config struct {
 	next     string
 	previous string
 	cache    *pokecache.Cache
+	pokemon  map[string]pokemonResponse
 }
 
 type cliCommand struct {
@@ -36,9 +40,9 @@ type locationAreaResponse struct {
 }
 
 type locationResponse struct {
-	id         string
-	name       string
-	game_index string
+	id        string
+	name      string
+	gameIndex string
 
 	Encounters []struct {
 		Pokemon struct {
@@ -46,6 +50,28 @@ type locationResponse struct {
 			URL  string `json:"url"`
 		} `json:"pokemon"`
 	} `json:"pokemon_encounters"`
+}
+type pokemonResponse struct {
+	Id             int    `json:"id"`
+	BaseExperience int    `json:"base_experience"`
+	Name           string `json:"name"`
+	Height         int    `json:"height"`
+	Weight         int    `json:"weight"`
+	Stats          []struct {
+		BaseStat int `json:"base_stat"`
+		Effort   int `json:"effort"`
+		Stat     struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"stat"`
+	} `json:"stats"`
+	Types []struct {
+		Slot int `json:"slot"`
+		Type struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"type"`
+	} `json:"types"`
 }
 
 func cleanInput(text string) []string {
@@ -185,6 +211,65 @@ func commandExplore(cfg *config, params []string) error {
 	return nil
 }
 
+func commandCatch(cfg *config, params []string) error {
+	fmt.Println("Throwing a Pokeball at", params[0]+"...")
+
+	body, err := cfg.cache.Get(params[0])
+	if err != nil {
+		url := pokemonURL + params[0]
+		res, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+
+		body, err = io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+
+		res.Body.Close()
+		cfg.cache.Add(params[0], body)
+	}
+
+	data := pokemonResponse{}
+	err = json.Unmarshal(body, &data)
+
+	// do the calc here
+	chance := 1.0 / (1.0 + float64(data.BaseExperience)/50.0)
+	if rand.Float64() < chance {
+		fmt.Println("Pokemon:", params[0], "was caught!")
+		cfg.pokemon[params[0]] = data
+	} else {
+		fmt.Println("Pokemon:", params[0], "escaped!")
+	}
+
+	return nil
+}
+
+func commandInspect(cfg *config, params []string) error {
+	data, err := cfg.pokemon[params[0]]
+
+	if !err {
+		fmt.Println("Pokemon:", params[0], "was not found!")
+		return nil
+	}
+
+	fmt.Println("Name:", data.Name)
+	fmt.Println("Height:", data.Height)
+	fmt.Println("Weight:", data.Weight)
+
+	fmt.Println("Stats:")
+	for _, stat := range data.Stats {
+		fmt.Println("  -" + stat.Stat.Name + ": " + strconv.Itoa(stat.BaseStat))
+	}
+
+	fmt.Println("Types:")
+	for _, typ := range data.Types {
+		fmt.Println("  -", typ.Type.Name)
+	}
+	return nil
+}
+
 func main() {
 	commands := map[string]cliCommand{
 		"map": {
@@ -212,11 +297,22 @@ func main() {
 			description: "Explore the Pokedex",
 			callback:    commandExplore,
 		},
+		"catch": {
+			name:        "catch",
+			description: "Catch a Pokemon",
+			callback:    commandCatch,
+		},
+		"inspect": {
+			name:        "inspect",
+			description: "Inspect a Pokemon",
+			callback:    commandInspect,
+		},
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	cfg := &config{}
 	cfg.cache = pokecache.NewCache(30 * time.Second)
+	cfg.pokemon = map[string]pokemonResponse{}
 
 	for {
 		fmt.Print("Pokedex > ")
